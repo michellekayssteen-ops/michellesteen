@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flower Sketch</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.7.0/p5.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+        }
+    </style>
+</head>
+<body>
+    <script>
+        // By Roni Kaufman
+        // https://ronikaufman.github.io
+
+        let centroids = [], centroidsIdx = 0;
+        let nFlowers = 18, nPetals = 12;
+        let margin = 100;
+        let petalEnds = [];
+
+        function setup() {
+            createCanvas(windowWidth, windowHeight);
+            pixelDensity(2);
+            background("#fffbe6");
+            noStroke();
+            
+            // Define patch boundaries for bottom corners
+            let leftPatch = {
+                xMin: margin,
+                xMax: width/3,
+                yMin: height - height/3,
+                yMax: height - margin
+            };
+            
+            let rightPatch = {
+                xMin: 2*width/3,
+                xMax: width - margin,
+                yMin: height - height/3,
+                yMax: height - margin
+            };
+            
+            // Alternate between left and right patches for corner framing effect
+            for (let i = 0; i < nFlowers; i++) {
+                let patch = (i % 2 === 0) ? leftPatch : rightPatch;
+                let x0 = random(patch.xMin, patch.xMax);
+                let y0 = random(patch.yMin, patch.yMax);
+                centroids.push({x0: x0, y0: y0, theta0: random(TAU), id: i, arcsLeft: shuffle([...Array(nPetals).keys()])});
+            }
+            for (let i = 0; i < 3; i++) voronoiRelaxation();
+        }
+
+        function windowResized() {
+            resizeCanvas(windowWidth, windowHeight);
+            // Redefine patch boundaries for new canvas size
+            let leftPatch = {
+                xMin: margin,
+                xMax: width/3,
+                yMin: height - height/3,
+                yMax: height - margin
+            };
+            
+            let rightPatch = {
+                xMin: 2*width/3,
+                xMax: width - margin,
+                yMin: height - height/3,
+                yMax: height - margin
+            };
+            
+            // Regenerate centroids for new canvas size
+            centroids = [];
+            for (let i = 0; i < nFlowers; i++) {
+                let patch = (i % 2 === 0) ? leftPatch : rightPatch;
+                let x0 = random(patch.xMin, patch.xMax);
+                let y0 = random(patch.yMin, patch.yMax);
+                centroids.push({x0: x0, y0: y0, theta0: random(TAU), id: i, arcsLeft: shuffle([...Array(nPetals).keys()])});
+            }
+            
+            // Reset drawing state
+            centroidsIdx = 0;
+            petalEnds = [];
+            background("#fffbe6");
+            
+            // Re-run Voronoi relaxation
+            for (let i = 0; i < 3; i++) voronoiRelaxation();
+        }
+
+        function draw() {
+            let c = centroids[centroidsIdx];
+            let theta = TAU*c.arcsLeft.pop()/nPetals + c.theta0;
+            let rMax = longestPossibleRadius(c, theta);
+            
+            fill(5);
+            let x, y, d = 0, r = 0;
+            while (r+d/2 < rMax) {
+                x = c.x0 + r*cos(theta);
+                y = c.y0 + r*sin(theta);
+                d = r*sin(TAU/nPetals);
+                circle(x, y, d+1);
+                
+                if (x < margin/2 || x > width-margin/2 || y < margin/2 || y > height-margin/2) break;
+                let intersects = false;
+                for (let p of petalEnds) {
+                    if (p.id != c.id && dist(x, y, p.x, p.y) < d/2 + p.d/2 + 6) {
+                        intersects = true;
+                        break;
+                    }
+                }
+                if (intersects) break;
+                
+                r++;
+            }
+            petalEnds.push({x: x, y: y, d: d, id: c.id});
+            
+            r = 0;
+            let borderThickness = 3;
+            fill("#fffbe6");
+            while (r*sin(TAU/nPetals) <= d) {
+                x = c.x0 + r*cos(theta);
+                y = c.y0 + r*sin(theta);
+                circle(x, y, r*sin(TAU/nPetals)+1-borderThickness);
+                r += 1/4;
+            }
+            
+            if (c.arcsLeft.length == 0) {
+                let dSum = 0;
+                for (let p of petalEnds) {
+                    if (p.id == c.id) {
+                        dSum += p.d;
+                    }
+                }
+                fill(5);
+                circle(c.x0, c.y0, dSum/nPetals);
+                fill("#f9d531");
+                circle(c.x0, c.y0, dSum/nPetals-borderThickness);
+                centroidsIdx++;
+            }
+            if (centroidsIdx >= centroids.length) noLoop();
+        }
+
+        function voronoiRelaxation() {
+            let n = 20, s = width/n;
+            let voronoi = Array(nFlowers).fill().map(()=>[]);
+            for (let i = 0; i < n; i++) {
+                let x = (i+1/2)*s;
+                for (let j = 0; j < n; j++) {
+                    let y = (j+1/2)*s;
+                    let cid = closestCentroidId(x, y);
+                    voronoi[cid].push([x, y]);
+                }
+            }
+            
+            for (let i = 0; i < nFlowers; i++) {
+                let c = centroids[i];
+                let cellPoints = voronoi[c.id];
+                let xSum = 0, ySum = 0;
+                for (let p of cellPoints) {
+                    xSum += p[0];
+                    ySum += p[1];
+                }
+                let x1 = constrain(xSum/cellPoints.length, margin, width-margin);
+                let y1 = constrain(ySum/cellPoints.length, margin, height-margin);
+                c.x0 = x1;
+                c.y0 = y1;
+            }
+        }
+
+        function longestPossibleRadius(centroid, theta) {
+            let x0 = centroid.x0, y0 = centroid.y0;
+            let r = 0;
+            let rMax = min(min(x0, width-x0), min(y0, height-y0));
+            let rStep = 2;
+            while (true) {
+                r += rStep;
+                let x = x0 + r*cos(theta), y = y0 + r*sin(theta);
+                if (closestCentroidId(x, y) != centroid.id) {
+                    break;
+                }
+                if (x < 0 || x > width || y < 0 || y > height) {
+                    break;
+                }
+            }
+            return r-rStep;
+        }
+
+        function closestCentroidId(x, y) {
+            let minDist = Infinity, idMin = -1;
+            for (let c of centroids) {
+                let d = distToCentroidSquared(c, x, y);
+                if (d < minDist) {
+                    minDist = d;
+                    idMin = c.id;
+                }
+            }
+            return idMin;
+        }
+            
+        function distToCentroidSquared(c, x, y) {
+            return sq(c.x0 - x) + sq(c.y0 - y);
+        }
+    </script>
+</body>
+</html>
